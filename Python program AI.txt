@@ -1,0 +1,201 @@
+
+import serial
+import pandas as pd
+import numpy as np
+from sklearn.linear_model import LinearRegression
+import logging
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Set up logging
+logging.basicConfig(filename='irrigation_sys.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Initialize serial connection
+try:
+    ser = serial.Serial('COM6', 9600)  # Replace 'COM6' with your Arduino's serial port
+    print("Serial connection established")
+except serial.SerialException as e:
+    logging.error(f"Error opening serial port: {e}")
+    print(f"Error opening serial port: {e}")
+    exit()
+
+# Function to parse data from Arduino
+def parse_data(data):
+    data_dict = {}
+    try:
+        items = data.split(',')
+        for item in items:
+            key, value = item.split(':')
+            data_dict[key.strip()] = float(value.strip())
+    except ValueError as e:
+        logging.error(f"Error parsing data: {e}")
+    return data_dict
+
+# Load a sample dataset to train the model (replace with your actual dataset)
+sample_data = pd.DataFrame({
+    'SoilMoisture': np.random.randint(0, 101, 100),
+    'Temperature': np.random.randint(0, 51, 100),  # Adjusted to cover full range
+    'Humidity': np.random.randint(0, 101, 100),
+    'SoilTemperature': np.random.randint(0, 51, 100),  # Adjusted to cover full range
+    'Irrigation': np.random.choice([0, 1], 100)  # 0 for off, 1 for on
+})
+
+# Train a simple linear regression model for irrigation control
+irrigation_features = sample_data[['SoilMoisture', 'Temperature', 'Humidity', 'SoilTemperature']]
+irrigation_target = sample_data['Irrigation']
+irrigation_model = LinearRegression()
+irrigation_model.fit(irrigation_features, irrigation_target)
+
+print("Model trained")
+
+# Function to control irrigation based on AI algorithm
+def control_irrigation(data):
+    soil_moisture = data['SoilMoisture']
+    temperature = data['Temperature']
+
+    # Define specific conditions for irrigation control
+    if soil_moisture > 60 and temperature < 20:
+        return 'off'
+    elif soil_moisture < 40 or temperature > 25:
+        return 'on'
+    elif 40 <= soil_moisture <= 60 and 20 <= temperature <= 25:
+        # Use AI model for intermediate conditions
+        features = np.array([[data['SoilMoisture'], data['Temperature'], data['Humidity'], data['SoilTemperature']]])
+        irrigation = irrigation_model.predict(features)[0]
+        return 'on' if irrigation > 0.5 else 'off'
+    else:
+        return 'off'  # Default to 'off' if conditions are not explicitly defined
+
+# Function to predict crop based on current conditions
+def predict_crop(conditions):
+    # Define crop conditions based on Karnataka's tropical and subtropical climates
+    crop_conditions = [
+        # Tropical Region (Hot and humid conditions)
+        {'region': 'Tropical', 'condition': lambda c: c['SoilMoisture'] > 60 and 25 <= c['Temperature'] <= 35, 'crop': 'Rice'},
+        {'region': 'Tropical', 'condition': lambda c: c['SoilMoisture'] < 40 and c['Temperature'] < 20, 'crop': 'Wheat'},
+        {'region': 'Tropical', 'condition': lambda c: 40 <= c['SoilMoisture'] <= 60 and 20 <= c['Temperature'] <= 30, 'crop': 'Maize'},
+        {'region': 'Tropical', 'condition': lambda c: 30 <= c['SoilMoisture'] <= 50 and 20 <= c['Temperature'] <= 30, 'crop': 'Sunflower'},
+        {'region': 'Tropical', 'condition': lambda c: c['SoilMoisture'] < 40 and c['Temperature'] > 25, 'crop': 'Cotton'},
+        {'region': 'Tropical', 'condition': lambda c: c['SoilMoisture'] > 60 and c['Temperature'] > 25, 'crop': 'Sugar Cane'},
+
+        # Subtropical Region (Milder conditions with varying temperatures)
+        {'region': 'Subtropical', 'condition': lambda c: 40 <= c['SoilMoisture'] <= 60 and 20 <= c['Temperature'] <= 30, 'crop': 'Ragi (Finger Millet)'},
+        {'region': 'Subtropical', 'condition': lambda c: 40 <= c['SoilMoisture'] <= 60 and c['Temperature'] > 25, 'crop': 'Groundnut'},
+        {'region': 'Subtropical', 'condition': lambda c: 30 <= c['SoilMoisture'] <= 50 and 20 <= c['Temperature'] <= 30, 'crop': 'Sorghum (Jowar)'},
+        {'region': 'Subtropical', 'condition': lambda c: 40 <= c['SoilMoisture'] <= 60 and 20 <= c['Temperature'] <= 30, 'crop': 'Soybean'}
+    ]
+
+    # Determine suitable crops and regions
+    suitable_crops = []
+    region = None
+
+    for crop_condition in crop_conditions:
+        if crop_condition['condition'](conditions):
+            suitable_crops.append(crop_condition['crop'])
+            region = crop_condition['region']
+
+    if suitable_crops:
+        return f"Region: {region}, Crops: {', '.join(suitable_crops)}"
+    else:
+        return "Unknown crop"
+
+# CSV file setup
+csv_filename = 'irrigation_data.csv'
+csv_columns = ['Timestamp', 'SoilMoisture', 'Temperature', 'Humidity', 'SoilTemperature', 'IrrigationStatus', 'PredictedCrop']
+
+# Initialize CSV file
+with open(csv_filename, 'w') as f:
+    f.write(','.join(csv_columns) + '\n')
+
+def save_to_csv(data, irrigation_status, predicted_crop):
+    timestamp = pd.Timestamp.now()
+    with open(csv_filename, 'a') as f:
+        f.write(f"{timestamp},{data['SoilMoisture']},{data['Temperature']},{data['Humidity']},{data['SoilTemperature']},{irrigation_status},{predicted_crop}\n")
+
+def plot_from_csv():
+    df = pd.read_csv(csv_filename)
+    print("Data for plotting:", df)  # Confirm data is loaded
+
+    plt.figure(figsize=(14, 8))
+
+    # Plot Soil Moisture and Temperature over time
+    plt.subplot(2, 2, 1)
+    plt.plot(df['Timestamp'], df['SoilMoisture'], label='Soil Moisture')
+    plt.plot(df['Timestamp'], df['Temperature'], label='Temperature')
+    plt.title('Soil Moisture and Temperature Over Time')
+    plt.xlabel('Time')
+    plt.ylabel('Value')
+    plt.xticks(rotation=45)
+    plt.legend()
+
+    # Plot Soil Temperature and Humidity over time
+    plt.subplot(2, 2, 2)
+    plt.plot(df['Timestamp'], df['SoilTemperature'], label='Soil Temperature')
+    plt.plot(df['Timestamp'], df['Humidity'], label='Humidity')
+    plt.title('Soil Temperature and Humidity Over Time')
+    plt.xlabel('Time')
+    plt.ylabel('Value')
+    plt.xticks(rotation=45)
+    plt.legend()
+
+    # Plot Predicted Crop
+    plt.subplot(2, 2, 3)
+    crop_counts = df['PredictedCrop'].value_counts()
+    plt.bar(crop_counts.index, crop_counts.values)
+    plt.title('Predicted Crop Distribution')
+    plt.xlabel('Crop')
+    plt.ylabel('Count')
+
+    plt.tight_layout()
+    plt.show()
+
+try:
+    iteration_count = 0
+    while True:
+        if ser.in_waiting > 0:
+            try:
+                arduino_data = ser.readline().decode('utf-8', errors='ignore').strip()
+                if "Irrigation" in arduino_data:
+                    print(f"Received control data: {arduino_data}")
+                    continue
+
+                print(f"Received data: {arduino_data}")
+                data = parse_data(arduino_data)
+
+                # Control irrigation
+                irrigation_status = control_irrigation(data)
+                logging.info(f"Received data: {data}")
+                logging.info(f"Irrigation status: {irrigation_status}")
+                print(f"Irrigation status: {irrigation_status}")
+
+                # Predict crop
+                predicted_crop = predict_crop(data)
+                logging.info(f"Predicted crop: {predicted_crop}")
+                print(f"Predicted crop: {predicted_crop}")
+
+                # Save data to CSV
+                save_to_csv(data, irrigation_status, predicted_crop)
+
+                # Send irrigation control command and crop prediction back to Arduino
+                ser.write((irrigation_status + '\n').encode('utf-8'))
+                ser.write((predicted_crop + '\n').encode('utf-8'))
+
+                # Plot data every 10 iterations
+                iteration_count += 1
+                if iteration_count % 10 == 0:
+                    print("Plotting data...")
+                    plot_from_csv()
+
+            except UnicodeDecodeError as e:
+                logging.error(f"Decoding error: {e}")
+                print(f"Decoding error: {e}")
+            except ValueError as e:
+                logging.error(f"Value error: {e}")
+                print(f"Value error: {e}")
+            except Exception as e:
+                logging.error(f"Unexpected error: {e}")
+                print(f"Unexpected error: {e}")
+except KeyboardInterrupt:
+    logging.info("Script interrupted by user")
+    ser.close()
+    print("Serial connection closed. Exiting...")

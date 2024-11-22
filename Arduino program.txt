@@ -1,0 +1,68 @@
+#include <DHT.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+// Pin definitions
+#define DHTPIN 2
+#define DHTTYPE DHT22
+#define SOIL_MOISTURE_PIN A0
+#define RELAY_PIN 7
+#define DS18B20_PIN 3
+
+// Initialize DHT22 sensor
+DHT dht(DHTPIN, DHTTYPE);
+
+// Initialize OneWire and DallasTemperature for DS18B20
+OneWire oneWire(DS18B20_PIN);
+DallasTemperature sensors(&oneWire);
+
+String irrigationCommand = "";  // Variable to store incoming irrigation command
+
+// Threshold values for controlling irrigation
+const float soilMoistureThreshold = 40.0; // Example threshold for low soil moisture
+const float temperatureThreshold = 30.0;  // Example threshold for high surrounding temperature
+const float soilTemperatureThreshold = 25.0; // Example threshold for high soil temperature
+const float humidityThreshold = 40.0; // Example threshold for low humidity
+
+void setup() {
+  Serial.begin(9600);    // Initialize serial communication
+  dht.begin();           // Start DHT22 sensor
+  sensors.begin();       // Start DS18B20 sensor
+  pinMode(RELAY_PIN, OUTPUT);  // Set relay pin as output
+}
+
+void loop() {
+  // Read data from DHT22
+  float humidity = dht.readHumidity();       // Humidity in percentage
+  float temperature = dht.readTemperature(); // Temperature in Celsius
+
+  // Read soil moisture sensor and convert to percentage
+  int soilMoistureRaw = analogRead(SOIL_MOISTURE_PIN);
+  float soilMoisturePercentage = map(soilMoistureRaw, 0, 1023, 0, 100);
+
+  // Read temperature from DS18B20
+  sensors.requestTemperatures();  // Request temperature from DS18B20
+  float soilTemperature = sensors.getTempCByIndex(0); // Temperature in Celsius
+
+  // Log data to serial monitor
+  Serial.print("Humidity:"); Serial.print(humidity); Serial.print(",");
+  Serial.print("Temperature:"); Serial.print(temperature); Serial.print(",");
+  Serial.print("SoilMoisture:"); Serial.print(soilMoisturePercentage); Serial.print(",");
+  Serial.print("SoilTemperature:"); Serial.print(soilTemperature); Serial.print(",");
+  Serial.print("IR:"); Serial.print(0);  // Replace with actual IR sensor reading if available
+  Serial.println();
+
+  // Determine irrigation needs based on conditions
+  if (soilMoisturePercentage < soilMoistureThreshold && 
+      temperature > temperatureThreshold && 
+      soilTemperature > soilTemperatureThreshold && 
+      humidity < humidityThreshold) {
+    digitalWrite(RELAY_PIN, HIGH);  // Turn on irrigation
+    Serial.println("Irrigation ON");
+  } else {
+    digitalWrite(RELAY_PIN, LOW);   // Turn off irrigation
+    Serial.println("Irrigation OFF");
+  }
+
+  delay(2000);  // Wait for 2 seconds before the next loop
+}
